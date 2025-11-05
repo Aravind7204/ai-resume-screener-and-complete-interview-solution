@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory
 import os
 import docx2txt
+from decouple import config
 from sentence_transformers import SentenceTransformer, util
 import re
 from spellchecker import SpellChecker
@@ -21,18 +22,25 @@ from datetime import datetime, timedelta
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 import smtplib
 from email.message import EmailMessage
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- FLASK APP INITIALIZATION & CONFIG ---
 app = Flask(__name__, template_folder="frontend/templates", static_folder="frontend/static")
-app.config['SECRET_KEY'] = "YOUR_FLASK_SECRET_KEY_HERE" # Hardcoded for local use
-app.config['SECURITY_PASSWORD_SALT'] = "YOUR_SECURITY_PASSWORD_SALT_HERE" # Hardcoded for local use
 
-# Email configuration (replace with your actual email server details)
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = "airesumescreener.noreply@gmail.com" # Hardcoded for local use
-app.config['MAIL_PASSWORD'] = "smon vbkx zebg dzwx" # Hardcoded for local use (App Password)
+# Use environment variables for security
+app.config['SECRET_KEY'] = config('SECRET_KEY', default='dev-secret-key-change-in-production')
+app.config['SECURITY_PASSWORD_SALT'] = config('SECURITY_PASSWORD_SALT', default='dev-salt-change-in-production')
+
+# Email configuration - use environment variables
+app.config['MAIL_SERVER'] = config('MAIL_SERVER', default='smtp.gmail.com')
+app.config['MAIL_PORT'] = config('MAIL_PORT', default=587, cast=int)
+app.config['MAIL_USE_TLS'] = config('MAIL_USE_TLS', default=True, cast=bool)
+app.config['MAIL_USERNAME'] = config('MAIL_USERNAME', default='')
+app.config['MAIL_PASSWORD'] = config('MAIL_PASSWORD', default='')
 
 s = URLSafeTimedSerializer(app.config['SECRET_KEY'] + app.config['SECURITY_PASSWORD_SALT'])
 
@@ -167,10 +175,22 @@ def is_email_valid(email):
     email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:\.[a-zA-Z]{2,})?$'
     return re.match(email_regex, email) is not None
 
-model = SentenceTransformer("all-MiniLM-L6-v2") # Reverting to original model
-spell = SpellChecker()
-COMMON_TECH_TERMS = {'js', 'dev', 'github', 'linkedin', 'firebase', 'wireframe', 'wireframes', 'signups', 'efficiency'}
-spell.word_frequency.load_words(COMMON_TECH_TERMS)
+# Import optimized model loader
+from model_loader import get_sentence_model, get_spell_checker, preload_models
+
+# Preload models during application startup
+try:
+    preload_models()
+    logger.info("Models preloaded successfully")
+except Exception as e:
+    logger.error(f"Failed to preload models: {e}")
+
+# Helper functions to get models
+def get_model():
+    return get_sentence_model()
+
+def get_spell():
+    return get_spell_checker()
 STOPWORDS = set(stopwords.words('english') + ["and", "the", "with", "for", "from", "that", "this", "your", "you", "a", "an", "in", "on", "to", "of", "or", "is", "are", "as", "be", "by", "at", "it", "using", "use", "also", "will", "can", "has", "have", "if", "must", "should", "etc", "e.g.", "i.e.", "role", "team", "years", "experience", "required", "preferred", "ability", "work"])
 TECH_SKILLS = {"python", "java", "sql", "aws", "azure", "docker", "kubernetes", "react", "angular", "node js", "machine learning", "data science", "project management", "agile", "scrum", "excel", "git", "linux", "tensorflow", "pytorch", "javascript", "html", "css", "mongodb", "database", "backend", "frontend", "api", "rest", "ci/cd", "devops", "php", "html5", "jquery", "web developer", "analytical skills", "php mvc", "mvc"}
 GENERIC_FILLERS = ["job description", "permanent category", "time permanent", "industry type", "traits looking", "code proud", "consulting department", "full time", "graduate post", "following traits", "technologies including", "craft writes", "understanding mvc", "basic knowledge", "in-depth knowledge", "including html5", "proud hit", "skillsjqueryfront endweb", "logical analytical", "developer php"]
